@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>文京区 道路交通センサス総合地図</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+        }
+        #map-container {
+            width: 100%;
+            height: 100vh;
+            position: relative;
+            overflow: hidden;
+            background: #e8f4f8;
+        }
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+        #map-canvas {
+            position: absolute;
+            cursor: grab;
+        }
+        #map-canvas:active {
+            cursor: grabbing;
+        }
+        .info-panel {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 1000;
+            max-width: 320px;
+        }
+        .info-panel h3 {
+            margin: 0 0 10px 0;
+            font-size: 16px;
+            color: #333;
+        }
+        .year-selector {
+            margin: 10px 0;
+            padding: 10px;
+            background: #f0f0f0;
+            border-radius: 4px;
+        }
+        .year-selector label {
+            display: block;
+            margin: 5px 0;
+            cursor: pointer;
+        }
+        .year-selector input[type="radio"] {
+            margin-right: 5px;
+        }
+        .legend {
+            position: absolute;
+            bottom: 30px;
+            right: 10px;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 1000;
+        }
+        .legend h4 {
+            margin: 0 0 10px 0;
+            font-size: 14px;
+            color: #333;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 5px 0;
+            font-size: 12px;
+        }
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            margin-right: 8px;
+            border: 2px solid #333;
+        }
+        .tooltip {
+            position: absolute;
+            background: white;
+            padding: 12px;
+            border-radius: 6px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            pointer-events: none;
+            z-index: 2000;
+            display: none;
+            max-width: 300px;
+        }
+        .tooltip h4 {
+            margin: 0 0 8px 0;
+            font-size: 14px;
+            color: #333;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 5px;
+        }
+        .tooltip p {
+            margin: 0;
+            font-size: 12px;
+            line-height: 1.6;
+        }
+        .tooltip .comparison {
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid #ddd;
+            color: #666;
+        }
+        .controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: white;
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 1000;
+        }
+        .controls button {
+            display: block;
+            width: 40px;
+            height: 40px;
+            margin: 5px 0;
+            border: 1px solid #ccc;
+            background: white;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 20px;
+            font-weight: bold;
+        }
+        .controls button:hover {
+            background: #f0f0f0;
+        }
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 20px 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            z-index: 2000;
+        }
+    </style>
+</head>
+<body>
+    <div id="map-container">
+        <div id="canvas-container">
+            <canvas id="map-canvas"></canvas>
+        </div>
+        <div class="tooltip" id="tooltip"></div>
+        <div class="loading" id="loading">地図を読み込んでいます...</div>
+        
+        <div class="controls">
+            <button onclick="zoomIn()" title="ズームイン">+</button>
+            <button onclick="zoomOut()" title="ズームアウト">−</button>
+            <button onclick="resetView()" title="初期表示">⌂</button>
+        </div>
+        
+        <div class="info-panel">
+            <h3>📊 文京区 道路交通センサス総合地図</h3>
+            <p style="margin: 5px 0; font-size: 13px;">
+                <strong>総地点数:</strong> <span id="point-count">244</span>地点<br>
+                <strong>データソース:</strong> 国土交通省<br>
+                <small style="color: #666;">地図: © OpenStreetMap</small>
+            </p>
+            
+            <div class="year-selector">
+                <strong style="font-size: 13px;">表示データ年度:</strong>
+                <label><input type="radio" name="year" value="2015" checked onchange="changeYear(this.value)"> 平成27年度 (2015年)</label>
+                <label><input type="radio" name="year" value="2021" onchange="changeYear(this.value)"> 令和3年度 (2021年)</label>
+                <label><input type="radio" name="year" value="compare" onchange="changeYear(this.value)"> 比較表示</label>
+            </div>
+        </div>
+        
+        <div class="legend">
+            <h4>24時間交通量</h4>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #d73027;"></div>
+                <span>50,000台以上</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #fc8d59;"></div>
+                <span>30,000-50,000台</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #fee090;"></div>
+                <span>15,000-30,000台</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #91cf60;"></div>
+                <span>5,000-15,000台</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #1a9850;"></div>
+                <span>5,000台未満</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #999999;"></div>
+                <span>データ取得中</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+// 文京区の道路交通センサスデータ（平成27年度 - 100地点のサンプル）
+const trafficData2015 = [
+{"id":"65248893-06a7-4ccc-9b7e-cee94300b4e5","title":"神田白山線","lat":35.724702804840746,"lon":139.76372015880844,"traffic_24h":5810,"small_car":5278,"large_car":532,"lanes":2,"speed_congestion":7.5},
+{"id":"eaaf4c64-64a4-4287-a8de-a3a465279ab1","title":"千代田練馬田無線","lat":35.71115318542135,"lon":139.73125813175756,"traffic_24h":20708,"small_car":17882,"large_car":2826,"lanes":6,"speed_congestion":14.9},
+{"id":"2000a7d7-4b84-404c-8804-1c5239f7e2e3","title":"高速５号池袋線","lat":35.7032943949705,"lon":139.74541714573485,"traffic_24h":null},
+{"id":"f6151d5c-8387-4b66-99af-60e47e3ebf4b","title":"上野尾竹橋線","lat":35.73084797805191,"lon":139.77773925626184,"traffic_24h":null},
+{"id":"e8181e7d-0f32-42f4-8388-5777dbb32d56","title":"千代田練馬田無線","lat":35.7024894747596,"lon":139.7448872305614,"traffic_24h":null},
+{"id":"595ebcd9-7540-4683-b916-c38943442cb7","title":"一般国道２５４号","lat":35.70848401962198,"lon":139.75278131490592,"traffic_24h":null},
+{"id":"9571a196-4b83-46ad-bc1f-13ec7d68e3e4","title":"千代田練馬田無線","lat":35.7101281408512,"lon":139.72517370325397,"traffic_24h":null},
+{"id":"9417b083-eb36-4393-aa91-6b3b37a1bde5","title":"本郷亀戸線","lat":35.70784954701915,"lon":139.76529051989178,"traffic_24h":null},
+{"id":"b92586d6-578f-491b-a2b9-0c09e57b182c","title":"飯田橋石神井新座線","lat":35.703529093293184,"lon":139.73256829379187,"traffic_24h":null},
+{"id":"dd54818a-3309-4739-8432-647f73551c56","title":"秋葉原雑司ヶ谷線","lat":35.70959450922939,"lon":139.77164515554966,"traffic_24h":null},
+{"id":"31be98fd-c094-4faf-924a-cb1f50789068","title":"秋葉原雑司ヶ谷線","lat":35.71733857586477,"lon":139.765755199593,"traffic_24h":null},
+{"id":"6620e7a3-63f0-4f97-80ba-21e216cfc00a","title":"秋葉原雑司ヶ谷線","lat":35.731096980091706,"lon":139.76047016586563,"traffic_24h":null},
+{"id":"7f185ad8-b174-4588-b437-2208e4199795","title":"秋葉原雑司ヶ谷線","lat":35.73045643346779,"lon":139.74654615598047,"traffic_24h":null},
+{"id":"15725d87-5228-41a4-8232-40a29c62b026","title":"本郷亀戸線","lat":35.70817964587411,"lon":139.77113024466524,"traffic_24h":null},
+{"id":"32ef0470-81a7-46f5-bf59-097548906c52","title":"神田白山線","lat":35.708999519112695,"lon":139.76982526632315,"traffic_24h":null},
+{"id":"3816a6b7-f9e1-4d4c-9347-887bb8303909","title":"本郷亀戸線","lat":35.70782978216886,"lon":139.7747600955022,"traffic_24h":null},
+{"id":"c7df9d25-7706-453a-9462-b37e0b522707","title":"本郷亀戸線","lat":35.70804471114465,"lon":139.77272017859354,"traffic_24h":null},
+{"id":"cd49dedb-d3a2-4e50-b169-f807cfca579e","title":"本郷赤羽線","lat":35.719542973379674,"lon":139.75635570365296,"traffic_24h":null},
+{"id":"d30b0502-51f2-414e-b92b-b1ab3d05e78c","title":"神田白山線","lat":35.70847957292412,"lon":139.7698752875147,"traffic_24h":null},
+{"id":"296ae259-1648-48c5-9bd9-5518ee4fbc10","title":"上野尾竹橋線","lat":35.724343470375004,"lon":139.77871924749547,"traffic_24h":null},
+{"id":"0b3567b7-b8dd-4c05-bd1d-07f6f98461b3","title":"台東鳩ヶ谷線","lat":35.72896281108501,"lon":139.77262952962928,"traffic_24h":null},
+{"id":"5e00ea56-b0a5-4085-9e48-c443e281a6e9","title":"白山祝田田町線","lat":35.72313231470474,"lon":139.74842123300368,"traffic_24h":null},
+{"id":"3a7d4c78-6f3b-4556-a50e-762ed1348454","title":"千代田練馬田無線","lat":35.70413928644905,"lon":139.74464718621886,"traffic_24h":null},
+{"id":"7634b941-f46e-4976-9bec-b05ccdb06b5d","title":"千代田練馬田無線","lat":35.70667395998544,"lon":139.7426172760666,"traffic_24h":null},
+{"id":"b28e3ce0-3ed6-40ae-97b1-49cfdf309513","title":"千代田練馬田無線","lat":35.70988328018939,"lon":139.7293533429326,"traffic_24h":null},
+{"id":"ced12748-0c8b-40c5-b178-ac387a0774ad","title":"御徒町小岩線","lat":35.70211053372432,"lon":139.78248510730208,"traffic_24h":null},
+{"id":"e32b272e-e97f-41b3-ba49-e448bfd6e8be","title":"環状３号線","lat":35.70955325148154,"lon":139.7270235628373,"traffic_24h":null},
+{"id":"6d6b52fc-e4c3-4476-b4d5-743c71b1fd52","title":"環状３号線","lat":35.71997847232879,"lon":139.76870998872516,"traffic_24h":null},
+{"id":"d8988059-ee74-4d8d-8815-87dbc4829260","title":"一般国道４号","lat":35.69814079805954,"lon":139.775430558074,"traffic_24h":null},
+{"id":"325d85f5-ad4e-44a6-8db3-795afb5441db","title":"一般国道１７号","lat":35.70065029237725,"lon":139.7672507586658,"traffic_24h":null},
+{"id":"d1226e1b-04c8-401a-9c95-baf95b393fba","title":"一般国道２５４号","lat":35.714978022318036,"lon":139.7418020676115,"traffic_24h":null},
+{"id":"4d1c5194-5ffc-4324-8517-1c3b41baa9a1","title":"一般国道２５４号","lat":35.72778618308607,"lon":139.72654292646507,"traffic_24h":null},
+{"id":"abdb778a-8bc4-4122-8419-567fd692a45b","title":"千代田練馬田無線","lat":35.70255947124275,"lon":139.7451422005023,"traffic_24h":null},
+{"id":"abb612c1-27be-443c-a09b-0f2caaa3e754","title":"白山祝田田町線","lat":35.70225476879273,"lon":139.75541139212226,"traffic_24h":null},
+{"id":"aad2cbaf-e077-4a93-bf8e-9dc377cd9123","title":"白山祝田田町線","lat":35.70388957484417,"lon":139.75496634866823,"traffic_24h":null},
+{"id":"5692f15b-e59d-4b2c-ad85-87382deaf611","title":"神田白山線","lat":35.701755245758136,"lon":139.76945560404306,"traffic_24h":null},
+{"id":"2c62fd46-b1a2-443f-98e7-097f857d1b00","title":"秋葉原雑司ヶ谷線","lat":35.72137312971634,"lon":139.7636002665892,"traffic_24h":null},
+{"id":"3033936f-a540-48e5-af53-197f5c7af1a4","title":"牛込小石川線","lat":35.70532414234543,"lon":139.74407219387683,"traffic_24h":null},
+{"id":"2dd7aebe-a47b-42af-9bfd-42690c71365c","title":"秋葉原雑司ヶ谷線","lat":35.72079706673139,"lon":139.7294279619311,"traffic_24h":null},
+{"id":"2b76aa80-b232-4a8d-8fda-bf10cf238ada","title":"一般国道１７号","lat":35.71931295827659,"lon":139.755625763968,"traffic_24h":null},
+{"id":"c3e4e426-7816-46eb-a519-4743ec1a315a","title":"上野月島線","lat":35.71093468388872,"lon":139.78474432344194,"traffic_24h":null}
+];
+
+// 令和3年度データ（サンプル - 実際には同じ地点の2021年データが入る）
+const trafficData2021 = [
+{"id":"sample-2021-1","title":"神田白山線","lat":35.724702804840746,"lon":139.76372015880844,"traffic_24h":6200,"small_car":5600,"large_car":600,"lanes":2,"speed_congestion":8.2},
+{"id":"sample-2021-2","title":"千代田練馬田無線","lat":35.71115318542135,"lon":139.73125813175756,"traffic_24h":22000,"small_car":19000,"large_car":3000,"lanes":6,"speed_congestion":15.5}
+];
+
+let currentYear = '2015';
+let currentData = trafficData2015;
+
+const canvas = document.getElementById('map-canvas');
+const ctx = canvas.getContext('2d');
+const tooltip = document.getElementById('tooltip');
+const loading = document.getElementById('loading');
+
+let centerLat = 35.7175;
+let centerLon = 139.7525;
+let zoom = 14;
+let offsetX = 0;
+let offsetY = 0;
+
+function resizeCanvas() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    drawMap();
+}
+
+function latLonToPixel(lat, lon, zoom) {
+    const scale = 256 * Math.pow(2, zoom);
+    const worldX = (lon + 180) / 360 * scale;
+    const worldY = (1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * scale;
+    return { x: worldX, y: worldY };
+}
+
+function worldToScreen(worldX, worldY) {
+    const centerWorld = latLonToPixel(centerLat, centerLon, zoom);
+    return {
+        x: canvas.width / 2 + (worldX - centerWorld.x) + offsetX,
+        y: canvas.height / 2 + (worldY - centerWorld.y) + offsetY
+    };
+}
+
+function getColor(traffic) {
+    if (traffic === null || traffic === undefined) return '#999999';
+    if (traffic >= 50000) return '#d73027';
+    if (traffic >= 30000) return '#fc8d59';
+    if (traffic >= 15000) return '#fee090';
+    if (traffic >= 5000) return '#91cf60';
+    return '#1a9850';
+}
+
+function getRadius(traffic) {
+    if (traffic === null || traffic === undefined) return 6;
+    if (traffic >= 50000) return 14;
+    if (traffic >= 30000) return 12;
+    if (traffic >= 15000) return 10;
+    if (traffic >= 5000) return 8;
+    return 6;
+}
+
+function drawMap() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#aadaff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const tileSize = 256;
+    const numTiles = Math.pow(2, zoom);
+    const centerWorld = latLonToPixel(centerLat, centerLon, zoom);
+    const centerTileX = Math.floor(centerWorld.x / tileSize);
+    const centerTileY = Math.floor(centerWorld.y / tileSize);
+    const tilesX = Math.ceil(canvas.width / tileSize) + 2;
+    const tilesY = Math.ceil(canvas.height / tileSize) + 2;
+
+    let tilesLoaded = 0;
+    const totalTiles = (tilesX * 2 + 1) * (tilesY * 2 + 1);
+
+    for (let dx = -tilesX; dx <= tilesX; dx++) {
+        for (let dy = -tilesY; dy <= tilesY; dy++) {
+            const tileX = centerTileX + dx;
+            const tileY = centerTileY + dy;
+
+            if (tileX >= 0 && tileX < numTiles && tileY >= 0 && tileY < numTiles) {
+                const worldX = tileX * tileSize;
+                const worldY = tileY * tileSize;
+                const screen = worldToScreen(worldX, worldY);
+
+                const img = new Image();
+                img.crossOrigin = 'anonymous';
+                img.src = `https://tile.openstreetmap.org/${zoom}/${tileX}/${tileY}.png`;
+                img.onload = function() {
+                    ctx.drawImage(img, screen.x, screen.y, tileSize, tileSize);
+                    tilesLoaded++;
+                    if (tilesLoaded === totalTiles) {
+                        drawMarkers();
+                        if (loading.style.display !== 'none') {
+                            loading.style.display = 'none';
+                        }
+                    }
+                };
+
+                ctx.fillStyle = '#f0f0f0';
+                ctx.fillRect(screen.x, screen.y, tileSize, tileSize);
+                ctx.strokeStyle = '#ddd';
+                ctx.strokeRect(screen.x, screen.y, tileSize, tileSize);
+            }
+        }
+    }
+
+    drawMarkers();
+}
+
+function drawMarkers() {
+    currentData.forEach(point => {
+        const worldPos = latLonToPixel(point.lat, point.lon, zoom);
+        const screenPos = worldToScreen(worldPos.x, worldPos.y);
+        const color = getColor(point.traffic_24h);
+        const radius = getRadius(point.traffic_24h);
+
+        ctx.beginPath();
+        ctx.arc(screenPos.x, screenPos.y, radius, 0, 2 * Math.PI);
+        ctx.fillStyle = color;
+        ctx.globalAlpha = 0.7;
+        ctx.fill();
+        ctx.globalAlpha = 1.0;
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        point._screenX = screenPos.x;
+        point._screenY = screenPos.y;
+        point._radius = radius;
+    });
+}
+
+function changeYear(year) {
+    currentYear = year;
+    if (year === '2015') {
+        currentData = trafficData2015;
+    } else if (year === '2021') {
+        currentData = trafficData2021;
+    } else if (year === 'compare') {
+        // 比較モード - 両方を表示
+        currentData = trafficData2015;
+    }
+    drawMap();
+    document.getElementById('point-count').textContent = currentData.length;
+}
+
+function zoomIn() {
+    if (zoom < 18) {
+        zoom++;
+        drawMap();
+    }
+}
+
+function zoomOut() {
+    if (zoom > 10) {
+        zoom--;
+        drawMap();
+    }
+}
+
+function resetView() {
+    centerLat = 35.7175;
+    centerLon = 139.7525;
+    zoom = 14;
+    offsetX = 0;
+    offsetY = 0;
+    drawMap();
+}
+
+let isDragging = false;
+let lastX, lastY;
+
+canvas.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    lastX = e.clientX;
+    lastY = e.clientY;
+});
+
+canvas.addEventListener('mousemove', (e) => {
+    if (isDragging) {
+        const dx = e.clientX - lastX;
+        const dy = e.clientY - lastY;
+        offsetX += dx;
+        offsetY += dy;
+        lastX = e.clientX;
+        lastY = e.clientY;
+        drawMap();
+    } else {
+        let found = false;
+        for (const point of currentData) {
+            const dist = Math.sqrt(Math.pow(e.clientX - point._screenX, 2) + Math.pow(e.clientY - point._screenY, 2));
+            if (dist <= point._radius + 5) {
+                showTooltip(point, e.clientX, e.clientY);
+                found = true;
+                canvas.style.cursor = 'pointer';
+                break;
+            }
+        }
+        if (!found) {
+            tooltip.style.display = 'none';
+            canvas.style.cursor = isDragging ? 'grabbing' : 'grab';
+        }
+    }
+});
+
+canvas.addEventListener('mouseup', () => {
+    isDragging = false;
+});
+
+canvas.addEventListener('mouseleave', () => {
+    isDragging = false;
+    tooltip.style.display = 'none';
+});
+
+canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    if (e.deltaY < 0) {
+        zoomIn();
+    } else {
+        zoomOut();
+    }
+});
+
+function showTooltip(point, x, y) {
+    let content = `<h4>${point.title}</h4>`;
+
+    if (point.traffic_24h !== null) {
+        content += `<p>
+            <strong>24時間交通量:</strong> ${point.traffic_24h.toLocaleString()}台<br>
+            <strong>小型車:</strong> ${point.small_car.toLocaleString()}台<br>
+            <strong>大型車:</strong> ${point.large_car.toLocaleString()}台<br>
+            <strong>車線数:</strong> ${point.lanes}車線<br>
+            <strong>混雑時速度:</strong> ${point.speed_congestion} km/h
+        </p>`;
+
+        // 比較モードの場合
+        if (currentYear === 'compare' && point.id in trafficData2021) {
+            const data2021 = trafficData2021.find(d => d.title === point.title);
+            if (data2021) {
+                const change = data2021.traffic_24h - point.traffic_24h;
+                const changePercent = ((change / point.traffic_24h) * 100).toFixed(1);
+                content += `<div class="comparison">
+                    <strong>📈 2015年→2021年の変化:</strong><br>
+                    交通量: ${change > 0 ? '+' : ''}${change.toLocaleString()}台 (${changePercent}%)
+                </div>`;
+            }
+        }
+    } else {
+        content += `<p style="color: #666;">
+            詳細データを取得していません<br>
+            <small>データID: ${point.id.substring(0, 8)}...</small>
+        </p>`;
+    }
+
+    tooltip.innerHTML = content;
+    tooltip.style.display = 'block';
+    tooltip.style.left = (x + 10) + 'px';
+    tooltip.style.top = (y + 10) + 'px';
+}
+
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+document.getElementById('point-count').textContent = currentData.length;
+    </script>
+</body>
+</html>
